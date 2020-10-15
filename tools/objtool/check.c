@@ -1202,11 +1202,10 @@ out:
 static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 			    struct reloc *table)
 {
-	struct reloc *reloc = table;
+	struct reloc *reloc = table, *prev = NULL;
 	struct instruction *dest_insn;
 	struct alternative *alt;
 	struct symbol *pfunc = insn->func->pfunc;
-	unsigned int prev_offset = 0;
 
 	/*
 	 * Each @reloc is a switch table relocation which points to the target
@@ -1219,7 +1218,7 @@ static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 			break;
 
 		/* Make sure the table entries are consecutive: */
-		if (prev_offset && reloc->offset != prev_offset + 8)
+		if (prev && reloc->offset != prev->offset + 8)
 			break;
 
 		/* Detect function pointers from contiguous objects: */
@@ -1243,10 +1242,10 @@ static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 
 		alt->insn = dest_insn;
 		list_add_tail(&alt->list, &insn->alts);
-		prev_offset = reloc->offset;
+		prev = reloc;
 	}
 
-	if (!prev_offset) {
+	if (prev == NULL) {
 		WARN_FUNC("can't find switch jump table",
 			  insn->sec, insn->offset);
 		return -1;
