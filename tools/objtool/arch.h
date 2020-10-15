@@ -87,6 +87,7 @@ unsigned long arch_jump_destination(struct instruction *insn);
 unsigned long arch_dest_reloc_offset(int addend);
 
 unsigned arch_reloc_width(const struct reloc *);
+bool arch_reloc_is_relative(const struct reloc *);
 
 const char *arch_nop_insn(int len);
 

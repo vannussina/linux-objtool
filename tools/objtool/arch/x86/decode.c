@@ -94,6 +94,24 @@ unsigned arch_reloc_width(const struct reloc *reloc)
 	}
 }
 
+bool arch_reloc_is_relative(const struct reloc *reloc) {
+	switch(reloc->type) {
+	case R_X86_64_PC64:
+	case R_X86_64_PC32:
+	case R_X86_64_PC16:
+	case R_X86_64_PC8:
+		return true;
+	case R_X86_64_64:
+	case R_X86_64_32:
+	case R_X86_64_16:
+	case R_X86_64_8:
+		return false;
+	default:
+		WARN("unknown relocation type: %u", reloc->type);
+		return false;
+	}
+}
+
 unsigned long arch_jump_destination(struct instruction *insn)
 {
 	return insn->offset + insn->len + insn->immediate;

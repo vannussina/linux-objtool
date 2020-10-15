@@ -1229,6 +1229,7 @@ static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 	 * instruction.
 	 */
 	list_for_each_entry_from(reloc, &table->sec->reloc_list, list) {
+		unsigned long offset;
 
 		/* Check for the end of the table: */
 		if (reloc != table && reloc->jump_table_start)
@@ -1243,7 +1244,11 @@ static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 		    reloc->addend == pfunc->offset)
 			break;
 
-		dest_insn = find_insn(file, reloc->sym->sec, reloc->addend);
+		offset = reloc->sym->offset + reloc->addend;
+		if (arch_reloc_is_relative(reloc))
+			offset += table->offset - reloc->offset;
+
+		dest_insn = find_insn(file, reloc->sym->sec, offset);
 		if (!dest_insn)
 			break;
 
