@@ -1199,6 +1199,23 @@ out:
 	return ret;
 }
 
+static bool is_consecutive(const struct reloc *prev, const struct reloc *next)
+{
+	unsigned long pvalue, nvalue;
+	if (prev == NULL || next == NULL)
+		return false;
+	if (prev->type != next->type)
+		return false;
+	if (prev->sec != next->sec)
+		return false;
+	if (prev->sym->sec != next->sym->sec)
+		return false;
+	pvalue = prev->sym->offset + prev->offset;
+	nvalue = next->sym->offset + next->offset;
+
+	return pvalue + 8 == nvalue;
+}
+
 static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 			    struct reloc *table)
 {
@@ -1218,7 +1235,7 @@ static int add_jump_table(struct objtool_file *file, struct instruction *insn,
 			break;
 
 		/* Make sure the table entries are consecutive: */
-		if (prev && reloc->offset != prev->offset + 8)
+		if (prev && !is_consecutive(prev, reloc))
 			break;
 
 		/* Detect function pointers from contiguous objects: */
