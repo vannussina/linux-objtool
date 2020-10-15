@@ -1213,7 +1213,7 @@ static bool is_consecutive(const struct reloc *prev, const struct reloc *next)
 	pvalue = prev->sym->offset + prev->offset;
 	nvalue = next->sym->offset + next->offset;
 
-	return pvalue + 8 == nvalue;
+	return (pvalue + arch_reloc_width(prev)) == nvalue;
 }
 
 static int add_jump_table(struct objtool_file *file, struct instruction *insn,

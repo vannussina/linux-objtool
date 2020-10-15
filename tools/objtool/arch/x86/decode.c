@@ -73,6 +73,27 @@ unsigned long arch_dest_reloc_offset(int addend)
 	return addend + 4;
 }
 
+unsigned arch_reloc_width(const struct reloc *reloc)
+{
+	switch(reloc->type) {
+	case R_X86_64_PC64:
+	case R_X86_64_64:
+		return 8;
+	case R_X86_64_PC32:
+	case R_X86_64_32:
+		return 4;
+	case R_X86_64_PC16:
+	case R_X86_64_16:
+		return 2;
+	case R_X86_64_PC8:
+	case R_X86_64_8:
+		return 1;
+	default:
+		WARN("unsupported relocation type: %u", reloc->type);
+		return 0;
+	}
+}
+
 unsigned long arch_jump_destination(struct instruction *insn)
 {
 	return insn->offset + insn->len + insn->immediate;
