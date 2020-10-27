@@ -140,6 +140,23 @@ static int create_orc_entry(struct elf *elf, struct section *u_sec, struct secti
 	return 0;
 }
 
+static unsigned orc_entry_count(struct objtool_file *file, struct section *sec)
+{
+	struct instruction *insn, *prev;
+	unsigned count = 0;
+
+	prev = NULL;
+	sec_for_each_insn(file, sec, insn) {
+		if (!prev || memcmp(&insn->orc, &prev->orc,
+				    sizeof(struct orc_entry)))
+			count++;
+		prev = insn;
+	}
+	if (prev)
+		count++;
+	return count;
+}
+
 int create_orc_sections(struct objtool_file *file)
 {
 	struct instruction *insn, *prev_insn;
@@ -163,24 +180,10 @@ int create_orc_sections(struct objtool_file *file)
 	for_each_sec(file, sec) {
 		if (!sec->text)
 			continue;
-
-		prev_insn = NULL;
-		sec_for_each_insn(file, sec, insn) {
-			if (!prev_insn ||
-			    memcmp(&insn->orc, &prev_insn->orc,
-				   sizeof(struct orc_entry))) {
-				idx++;
-			}
-			prev_insn = insn;
-		}
-
-		/* section terminator */
-		if (prev_insn)
-			idx++;
+		if (sec->sh.sh_flags & SHF_GROUP)
+			continue;
+		idx += orc_entry_count(file, sec);
 	}
-	if (!idx)
-		return -1;
-
 
 	/* create .orc_unwind_ip and .rela.orc_unwind_ip sections */
 	sec = elf_create_section(file->elf, ".orc_unwind_ip", 0, sizeof(int), idx);
@@ -198,34 +201,103 @@ int create_orc_sections(struct objtool_file *file)
 	/* populate sections */
 	idx = 0;
 	for_each_sec(file, sec) {
+		struct section *reloc;
+		struct section *unwind;
+		unsigned counter;
 		if (!sec->text)
 			continue;
+		if (sec->sh.sh_flags & SHF_GROUP) {
+			struct section *i_sec, *group;
+			char name[strlen(".orc_unwind_ip") + strlen(sec->name) + 1];
+
+			counter = orc_entry_count(file, sec);
+			if (counter == 0)
+				continue;
+
+			snprintf(name, sizeof(name), ".orc_unwind_ip%s", sec->name);
+			/* create .orc_unwind_ip and .rela.orc_unwind_ip sections */
+			i_sec = elf_create_section(file->elf, name, SHF_GROUP, sizeof(int), counter);
+			if (!i_sec)
+				return -1;
+
+			reloc = elf_create_reloc_section(file->elf, i_sec, SHT_RELA);
+			if (!reloc)
+				return -1;
+
+			/* create .orc_unwind section */
+			snprintf(name, sizeof(name), ".orc_unwind%s", sec->name);
+			unwind= elf_create_section(file->elf, name, SHF_GROUP,
+						   sizeof(struct orc_entry), counter);
+
+			/* add to groups */
+			for_each_sec(file, group) {
+				bool relevant = false;
+				unsigned i;
+				Elf32_Word *member;
+				if (group->sh.sh_type != SHT_GROUP)
+					continue;
+
+				member = group->data->d_buf;
+				for (i = 1; !relevant && i < group->len / sizeof(*member); ++i)
+					if (sec->idx == member[i])
+						relevant = true;
+				if (!relevant)
+					continue;
+				WARN("group: %s len:%u size:%zu", group->name,
+				     group->len, group->data->d_size);
+
+				member = malloc(group->len + (sizeof(*member) * 3));
+				if (!member)
+					return -1;
+				memcpy(member, group->data->d_buf, group->len);
+				member[group->len/sizeof(*member) + 0] = unwind->idx;
+				member[group->len/sizeof(*member) + 1] = i_sec->idx;
+				member[group->len/sizeof(*member) + 2] = reloc->idx;
+				group->data->d_buf = member;
+				group->data->d_size = group->len + (3 * sizeof(*member));
+				group->len = group->len + (3 * sizeof(*member));
+
+				group->changed = true;
+			}
+
+			counter = 0;
+		} else {
+			unwind = u_sec;
+			reloc = ip_relocsec;
+			counter = idx;
+		}
+		WARN("create orc in %s", unwind->name);
 
 		prev_insn = NULL;
 		sec_for_each_insn(file, sec, insn) {
 			if (!prev_insn || memcmp(&insn->orc, &prev_insn->orc,
 						 sizeof(struct orc_entry))) {
 
-				if (create_orc_entry(file->elf, u_sec, ip_relocsec, idx,
-						     insn->sec, insn->offset,
-						     &insn->orc))
+				if (create_orc_entry(file->elf, unwind, reloc,
+						     counter, insn->sec,
+						     insn->offset, &insn->orc))
 					return -1;
 
-				idx++;
+				counter++;
 			}
 			prev_insn = insn;
 		}
 
 		/* section terminator */
 		if (prev_insn) {
-			if (create_orc_entry(file->elf, u_sec, ip_relocsec, idx,
+			if (create_orc_entry(file->elf, unwind, reloc, counter,
 					     prev_insn->sec,
 					     prev_insn->offset + prev_insn->len,
 					     &empty))
 				return -1;
 
-			idx++;
+			counter++;
 		}
+
+		if (!(sec->sh.sh_flags & SHF_GROUP))
+			idx = counter;
+		else if (elf_rebuild_reloc_section(file->elf, reloc))
+			return -1;
 	}
 
 	if (elf_rebuild_reloc_section(file->elf, ip_relocsec))
